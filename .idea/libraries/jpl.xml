@@ -2,6 +2,7 @@
   <library name="jpl">
     <CLASSES>
       <root url="jar:///usr/lib/swi-prolog/lib/jpl.jar!/" />
+      <root url="jar://C:/Program Files/swipl/lib/jpl.jar!/" />
     </CLASSES>
     <JAVADOC />
     <SOURCES />
