@@ -1,6 +1,11 @@
+scream:- false.
+
 % true when one coordinate matches and the other is exactly one away.
 adjacent([X1, Y1], [X2, Y2]):- X1 = X2, nextTo(Y1, Y2).
 adjacent([X1, Y1], [X2, Y2]):- Y1 = Y2, nextTo(X1, X2).
+
+safeAndAdj([X1, Y1], [X2, Y2]):- safe(X2, Y2), adjacent([X1, Y1], [X2, Y2]).
+safeUnexplored(X, Y):- safe(X, Y), \+explored(X, Y).
 
 % we know a tile is safe if there's certainly no pit/wumpus or if we've been there without dying
 safe(X, Y):- explored(X, Y).

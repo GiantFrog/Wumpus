@@ -1,7 +1,11 @@
 import org.jpl7.*;
 
 import java.lang.Integer;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Stack;
+
+import static java.lang.System.exit;
 
 public class WumpusWorld
 {
@@ -115,10 +119,13 @@ public class WumpusWorld
 	{
 		if (map[a][b].isStinky())
 			new Query("assert(stinky(" + a + "," + b + "))").hasSolution();
+		else new Query("assert(stinky(" + a + "," + b + "):- false)").hasSolution();
 		if (map[a][b].isDrafty())
 			new Query("assert(drafty(" + a + "," + b + "))").hasSolution();
+		else new Query("assert(drafty(" + a + "," + b + "):- false)").hasSolution();
 		if (map[a][b].isGlittery())
 			new Query("assert(glittery(" + a + "," + b + "))").hasSolution();
+		else new Query("assert(glittery(" + a + "," + b + "):- false)").hasSolution();
 		
 		if (map[a][b].isWall())
 		{
@@ -196,15 +203,29 @@ public class WumpusWorld
 		}
 		forward();
 	}
+	public void moveAjd (int x, int y)
+	{
+		if (y > agentY)				//move north
+			moveAjd(0);
+		else if (x > agentX)		//move east
+			moveAjd(1);
+		else if (y < agentY)		//move south
+			moveAjd(2);
+		else moveAjd(3);	//move west
+	}
 	//moves an agent safely to a room. the last move is allowed to be risky.
 	//returns false if no safe path could be found.
 	public boolean goTo (int x, int y)
 	{
-		Stack<Integer> path = new BFS().solve(agentX, agentY, x, y);
+		Node path = new Search(agentX, agentY, x, y).solve();
 		if (path == null)
 			return false;
-		while (!path.isEmpty())
-			moveAjd(path.pop());
+		while (path.getParent() != null)
+		{
+			//we start on our staring space, so we can skip trying to move there.
+			path = path.getParent();
+			moveAjd(path.getX(), path.getY());
+		}
 		
 		if (agentHasDied())
 			points -= 1000;
@@ -283,10 +304,33 @@ public class WumpusWorld
 		if (new Query("glittery(" + agentX + "," + agentY + ")").hasSolution())
 			grabGold();
 		else
-		{
-			//TODO query for all safe spaces. pick the closest one and move to it.
-			//TODO decide how to proceed when there are no space spaces.
-			forward();
+		{	//query for all safe spaces. pick the closest one and move to it.
+			Query safe = new Query("safe(X,Y)");
+			Query explored = new Query("explored(X,Y");
+			//TODO remove every explored element from safe, then pick from the leftovers.
+			Map<String,Term> goodRoom;
+			int bestRoomX = -1, bestRoomY = -1, distance, bestDistance = Integer.MAX_VALUE;
+			if (safeUnexplored.hasSolution())	//there's a safe place to go to!
+			{
+				while (safeUnexplored.hasMoreSolutions())
+				{
+					goodRoom = safeUnexplored.getSolution();
+					distance = Math.abs(goodRoom.get("X").intValue() - agentX) + Math.abs(goodRoom.get("Y").intValue() - agentY);
+					if (distance < bestDistance)
+					{
+						bestDistance = distance;
+						bestRoomX = goodRoom.get("X").intValue();
+						bestRoomY = goodRoom.get("Y").intValue();
+					}
+				}
+				goTo(bestRoomX, bestRoomY);
+			}
+			else
+			{
+				//TODO decide how to proceed when there are no space spaces.
+				System.out.println("There are no safe spaces left!!");
+				forward();
+			}
 		}
 		if (agentHasWon())
 			points += 1000;

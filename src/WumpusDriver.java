@@ -10,7 +10,6 @@ public class WumpusDriver
 		else if (world.agentHasWon())
 			System.out.println("By God, he's done it!");
 	}
-	//TODO implement goTo w/ maze algorithm using safe spaces
 	//TODO main menu with level size chooser
 	//TODO write prolog rules
 }
