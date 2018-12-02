@@ -1,9 +1,13 @@
 import org.jpl7.*;
 
+import java.lang.Integer;
+import java.util.Stack;
+
 public class WumpusWorld
 {
 	private Room[][] map;
-	private int agentX, agentY, agentDirection, moves, points;
+	private int startingX, startingY, agentX, agentY, agentDirection, moves, points, arrows;
+	private boolean hasGold;
 	
 	public WumpusWorld (int mapSize)
 	{
@@ -12,8 +16,11 @@ public class WumpusWorld
 		Query loadWrits = new Query("consult", new Term[] {new Atom("wumpus_writs.pl")});
 		System.out.println( "Wumpus Writs have been loaded" + (loadWrits.hasSolution() ? " successfully!" : "... Not at all. They failed to load."));
 		
+		hasGold = false;
+		arrows = agentDirection = startingX = startingY = 1;
 		points = moves = 0;
-		agentX = agentY = agentDirection = 1;
+		agentX = startingX;
+		agentY = startingY;
 		map = generateMap(mapSize);
 		sendSenses(agentX, agentY);
 	}
@@ -127,7 +134,7 @@ public class WumpusWorld
 	
 	//moves the agent in the direction they are facing.
 	//no movement will happen if the agent tries to walk into a wall.
-	private void forward()
+	public void forward()
 	{
 		moves++;
 		points--;
@@ -150,18 +157,158 @@ public class WumpusWorld
 					agentX--;
 		}
 	}
-	
-	private void turnRight()
+	public void turnRight()
 	{
 		moves++;
 		agentDirection++;
 		agentDirection %= 4;
 	}
-	private void turnLeft()
+	public void turnLeft()
 	{
 		moves++;
 		agentDirection--;
 		if (agentDirection < 0)
 			agentDirection = 3;
+	}
+	//uses turning and forward moves to go directly to an adjacent square. does NOT check for safety!
+	public void moveAjd (int direction)
+	{
+		//this variable is a little confusing, but it saves some space compared to previous copy/paste spaghetticode
+		//think of it as how many times we have to turn left to end up facing the way we want to go!
+		int turnControl = agentDirection - direction;
+		if (turnControl < 0)
+			turnControl += 4;
+		
+		switch (turnControl)
+		{
+			case 0:
+				break;
+			case 1:
+				turnLeft();
+				break;
+			case 2:
+				turnLeft();
+				turnLeft();
+				break;
+			case 3:
+				turnRight();
+				break;
+		}
+		forward();
+	}
+	//moves an agent safely to a room. the last move is allowed to be risky.
+	//returns false if no safe path could be found.
+	public boolean goTo (int x, int y)
+	{
+		Stack<Integer> path = new BFS().solve(agentX, agentY, x, y);
+		if (path == null)
+			return false;
+		while (!path.isEmpty())
+			moveAjd(path.pop());
+		
+		if (agentHasDied())
+			points -= 1000;
+		return true;
+	}
+	//give the agent the gold and remove it from the map
+	public void grabGold()
+	{
+		moves++;
+		if (map[agentX][agentY].isGold())
+		{
+			new Query("retract(glittery(" + agentX + "," + agentY + "))").hasSolution();
+			hasGold = true;
+		}
+	}
+	public void shoot()
+	{
+		moves++;
+		points -= 10;
+		if (arrows > 0)
+		{
+			arrows--;
+			switch (agentDirection)
+			{
+				case 0:		//north
+					for (int a = agentY; !map[agentX][a].isWall(); a++)	//go until you hit a wall
+					{
+						if (sendArrowThrough(agentX, a))
+							break; //the arrow stops when it hits the Wumpus
+					}
+					break;
+				case 1:		//east
+					for (int a = agentX; !map[a][agentY].isWall(); a++)
+					{
+						if (sendArrowThrough(a, agentY))
+							break;
+					}
+					break;
+				case 2:		//south
+					for (int a = agentY; !map[agentX][a].isWall(); a--)
+					{
+						if (sendArrowThrough(agentX, a))
+							break;
+					}
+					break;
+				default:	//west
+					for (int a = agentX; !map[a][agentY].isWall(); a--)
+					{
+						if (sendArrowThrough(a, agentY))
+							break;
+					}
+			}
+		}
+	}
+	//helper function for shoot().
+	//Returns true if the wumpus has been hit. We stop the arrow if we hit the wumpus.
+	private boolean sendArrowThrough (int x, int y)
+	{
+		if (map[x][y].isWumpus())
+		{
+			//tell the agent there is no more risk from the wumpus
+			new Query("assert(scream)").hasSolution();
+			return true;
+		}
+		else
+		{
+			//tell the agent no wumpus can possibly be in this square
+			new Query("assert(noWumpus(" + x + "," + y + "))").hasSolution();
+			return false;
+		}
+	}
+	
+	//looks at what the agent knows about the world, picks the best action to make, and performs it.
+	public void makeAction()
+	{
+		if (new Query("glittery(" + agentX + "," + agentY + ")").hasSolution())
+			grabGold();
+		else
+		{
+			//TODO query for all safe spaces. pick the closest one and move to it.
+			//TODO decide how to proceed when there are no space spaces.
+			forward();
+		}
+		if (agentHasWon())
+			points += 1000;
+	}
+	
+	//returns true if the agent has gold and is in the starting room
+	public boolean agentHasWon()
+	{
+		return (hasGold && agentX == startingX && agentY == startingY);
+	}
+	//returns true if the agent is standing on a pit or is in a room with the wumpus and has never heard a scream.
+	public boolean agentHasDied()
+	{
+		boolean wumpusIsDead = new Query("scream").hasSolution();
+		return (map[agentX][agentY].isPit() || (!wumpusIsDead && map[agentX][agentY].isWumpus()));
+	}
+	public int getMoves()
+	{
+		return moves;
+	}
+	public int getPoints()
+	{
+		return points;
 	}
 }
