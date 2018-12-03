@@ -154,24 +154,35 @@ public class WumpusWorld
 	public void forward()
 	{
 		moves++;
-		points--;
 		switch (agentDirection)
 		{
 			case 0:		//north
 				if (sendSenses(agentX, agentY+1))
+				{
 					agentY++;
+					points--;
+				}
 				break;
 			case 1:		//east
 				if (sendSenses(agentX+1, agentY))
+				{
 					agentX++;
+					points--;
+				}
 				break;
 			case 2:		//south
 				if (sendSenses(agentX, agentY-1))
+				{
 					agentY--;
+					points--;
+				}
 				break;
 			default:	//west
 				if (sendSenses(agentX-1, agentY))
+				{
 					agentX--;
+					points--;
+				}
 		}
 	}
 	public void turnRight()
@@ -311,9 +322,12 @@ public class WumpusWorld
 	//looks at what the agent knows about the world, picks the best action to make, and performs it.
 	public void makeAction()
 	{
-		//if there's glitter here, the best action is always to take the gold!
+		//if there's glitter here, the best action is always to take the gold and run!
 		if (new Query("glittery(" + agentX + "," + agentY + ")").hasSolution())
+		{
 			grabGold();
+			goTo(startingX, startingY);
+		}
 		else
 		{	//query for all safe, unexplored rooms. pick the closest one and move to it.
 			int bestRoomX = -1, bestRoomY = -1, distance, bestDistance = Integer.MAX_VALUE;
