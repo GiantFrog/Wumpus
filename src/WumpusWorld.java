@@ -1,11 +1,8 @@
 import org.jpl7.*;
 
 import java.lang.Integer;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.Map;
-import java.util.Stack;
-
-import static java.lang.System.exit;
 
 public class WumpusWorld
 {
@@ -77,7 +74,7 @@ public class WumpusWorld
 				{
 					System.out.println("The gold is in " + j + ", " + k);
 					map[j][k].setGold();
-					map[j][j].setGlittery();
+					map[j][k].setGlittery();
 					goldAdded = true;
 				}
 			}
@@ -117,24 +114,37 @@ public class WumpusWorld
 	//returns false if the agent tried to walk into a wall.
 	private boolean sendSenses (int a, int b)
 	{
+		System.out.println("You head to " + a + ", " + b + ".");
 		if (map[a][b].isStinky())
+		{
 			new Query("assert(stinky(" + a + "," + b + "))").hasSolution();
+			System.out.println("You smell the unmistakable stench of the wumpus.");
+		}
 		else new Query("assert(stinky(" + a + "," + b + "):- false)").hasSolution();
 		if (map[a][b].isDrafty())
+		{
 			new Query("assert(drafty(" + a + "," + b + "))").hasSolution();
+			System.out.println("You feel a draft and hear the gentle howl of the empty sky below you.");
+		}
 		else new Query("assert(drafty(" + a + "," + b + "):- false)").hasSolution();
 		if (map[a][b].isGlittery())
+		{
 			new Query("assert(glittery(" + a + "," + b + "))").hasSolution();
+			System.out.println("The walls reflect with the glitter of gold! The treasure must be in here, somewhere...");
+		}
 		else new Query("assert(glittery(" + a + "," + b + "):- false)").hasSolution();
 		
+		//send a bump if we hit a wall
 		if (map[a][b].isWall())
 		{
 			new Query("assert(wall(" + a + "," + b + "))").hasSolution();
+			System.out.println("...but fall backwards after walking straight into a wall. D:");
 			return false;
 		}
-		else	//only count a space as explored if there's no wall
+		else	//only count a space as explored if there's no wall, so we don't try to pathfind through it
 		{
 			new Query("assert(explored(" + a + "," + b + "))").hasSolution();
+			new Query("assert(wall(" + a + "," + b + "):- false)").hasSolution();
 			return true;
 		}
 	}
@@ -301,35 +311,57 @@ public class WumpusWorld
 	//looks at what the agent knows about the world, picks the best action to make, and performs it.
 	public void makeAction()
 	{
+		//if there's glitter here, the best action is always to take the gold!
 		if (new Query("glittery(" + agentX + "," + agentY + ")").hasSolution())
 			grabGold();
 		else
-		{	//query for all safe spaces. pick the closest one and move to it.
-			Query safe = new Query("safe(X,Y)");
-			Query explored = new Query("explored(X,Y");
-			//TODO remove every explored element from safe, then pick from the leftovers.
-			Map<String,Term> goodRoom;
+		{	//query for all safe, unexplored rooms. pick the closest one and move to it.
 			int bestRoomX = -1, bestRoomY = -1, distance, bestDistance = Integer.MAX_VALUE;
-			if (safeUnexplored.hasSolution())	//there's a safe place to go to!
+			ArrayList<int[]> safeUnexploredCoords = new ArrayList<>();
+			
+			//grab all the safe rooms
+			Query safe = new Query("safe(X,Y)");
+			while (safe.hasMoreSolutions())
 			{
-				while (safeUnexplored.hasMoreSolutions())
-				{
-					goodRoom = safeUnexplored.getSolution();
-					distance = Math.abs(goodRoom.get("X").intValue() - agentX) + Math.abs(goodRoom.get("Y").intValue() - agentY);
-					if (distance < bestDistance)
-					{
-						bestDistance = distance;
-						bestRoomX = goodRoom.get("X").intValue();
-						bestRoomY = goodRoom.get("Y").intValue();
-					}
-				}
-				goTo(bestRoomX, bestRoomY);
+				Map<String,Term> safeRoom = safe.nextSolution();
+				safeUnexploredCoords.add(new int[] {safeRoom.get("X").intValue(), safeRoom.get("Y").intValue()});
 			}
-			else
+			//filter out any that are explored or walls
+			Query explored = new Query("explored(X,Y)");
+			while (explored.hasMoreSolutions())
+			{
+				Map<String,Term> exploredRoom = explored.nextSolution();
+				safeUnexploredCoords.removeIf(coord -> coord[0] == exploredRoom.get("X").intValue() && exploredRoom.get("Y").intValue() == coord[1]);
+			}
+			Query wall = new Query("wall(X,Y)");
+			while (wall.hasMoreSolutions())
+			{
+				Map<String,Term> wallRoom = wall.nextSolution();
+				safeUnexploredCoords.removeIf(coord -> coord[0] == wallRoom.get("X").intValue() && wallRoom.get("Y").intValue() == coord[1]);
+			}
+			
+			if (safeUnexploredCoords.isEmpty())	//there's no safe place to go to!
 			{
 				//TODO decide how to proceed when there are no space spaces.
 				System.out.println("There are no safe spaces left!!");
 				forward();
+			}
+			else	//there is at least one safe place to go!
+			{
+				//measure how far away each option we have is
+				for (int[] coord : safeUnexploredCoords)
+				{
+					distance = Math.abs(coord[0] - agentX) + Math.abs(coord[1] - agentY);
+					if (distance < bestDistance)
+					{
+						bestDistance = distance;
+						bestRoomX = coord[0];
+						bestRoomY = coord[1];
+					}
+				}
+				//then go to the closest one! We should be able to find a path, but this print statement is here for debugging just in case.
+				 if (!goTo(bestRoomX, bestRoomY))
+					 System.out.println("No safe path could be found: " + agentX + ", " + agentY + " -> " + bestRoomX + ", " + bestRoomY);
 			}
 		}
 		if (agentHasWon())

@@ -53,7 +53,7 @@ public class Search
 				return best;
 			
 			//ask prolog for all the safe, adjacent rooms and add them to the frontier
-			Query safeAdjQuery = new Query("safeAndAdjacent([" + best.getX() + "," + best.getY() + "],[X2,Y2])");
+			Query safeAdjQuery = new Query("safeAndAdj([" + best.getX() + "," + best.getY() + "],[X2,Y2])");
 			Map<String, Term> safeRoom = new HashMap<>();
 			while (safeAdjQuery.hasMoreSolutions())
 			{
