@@ -7,7 +7,7 @@ import java.util.Map;
 public class WumpusWorld
 {
 	private Room[][] map;
-	private int startingX, startingY, agentX, agentY, agentDirection, moves, points, arrows;
+	private int startingX, startingY, agentX, agentY, agentDirection, actions, points, arrows;
 	private boolean hasGold;
 	
 	public WumpusWorld (int mapSize)
@@ -19,7 +19,7 @@ public class WumpusWorld
 		
 		hasGold = false;
 		arrows = agentDirection = startingX = startingY = 1;
-		points = moves = 0;
+		points = actions = 0;
 		agentX = startingX;
 		agentY = startingY;
 		map = generateMap(mapSize);
@@ -107,6 +107,12 @@ public class WumpusWorld
 			new Query("assert(nextTo(" + a + "," + (a-1) + "))").hasSolution();
 			new Query("assert(nextTo(" + (a-1) + "," + a + "))").hasSolution();
 		}
+		//prolog already knows (0,0) is a wall, but we want to tell it the other three corners are as well.
+		//this way we never try to explore these unreachable spaces.
+		new Query("assert(wall(" + 0 + "," + (size+1) + "))").hasSolution();
+		new Query("assert(wall(" + (size+1) + "," + 0 + "))").hasSolution();
+		new Query("assert(wall(" + (size+1) + "," + (size+1) + "))").hasSolution();
+		
 		return map;
 	}
 	
@@ -134,6 +140,18 @@ public class WumpusWorld
 		}
 		else new Query("assert(glittery(" + a + "," + b + "):- false)").hasSolution();
 		
+		//send flavor text before death if the agent enters a lethal room
+		boolean wumpusIsDead = new Query("scream").hasSolution();
+		if (map[a][b].isWumpus())
+		{
+			if (wumpusIsDead)
+				System.out.println("Most of the room is filled by the wumpus, which is still truly terrifying even after being slain by your arrow!");
+			else
+				System.out.println("Most of the room is filled by the wumpus, which devours you well before you get a chance to examine it!");
+		}
+		if (map[a][b].isPit())
+			System.out.println("You suddenly find yourself falling through the open sky! You have plenty of time to contemplate your career choices before you hit the ground.");
+		
 		//send a bump if we hit a wall
 		if (map[a][b].isWall())
 		{
@@ -153,7 +171,7 @@ public class WumpusWorld
 	//no movement will happen if the agent tries to walk into a wall.
 	public void forward()
 	{
-		moves++;
+		actions++;
 		switch (agentDirection)
 		{
 			case 0:		//north
@@ -187,13 +205,13 @@ public class WumpusWorld
 	}
 	public void turnRight()
 	{
-		moves++;
+		actions++;
 		agentDirection++;
 		agentDirection %= 4;
 	}
 	public void turnLeft()
 	{
-		moves++;
+		actions++;
 		agentDirection--;
 		if (agentDirection < 0)
 			agentDirection = 3;
@@ -255,16 +273,18 @@ public class WumpusWorld
 	//give the agent the gold and remove it from the map
 	public void grabGold()
 	{
-		moves++;
+		actions++;
 		if (map[agentX][agentY].isGold())
 		{
 			new Query("retract(glittery(" + agentX + "," + agentY + "))").hasSolution();
 			hasGold = true;
+			System.out.println("You find the treasure and load up on as many gold bars as you can carry!");
 		}
+		else System.out.println("You search the room for treasure, but find nothing.");
 	}
 	public void shoot()
 	{
-		moves++;
+		actions++;
 		points -= 10;
 		if (arrows > 0)
 		{
@@ -331,52 +351,57 @@ public class WumpusWorld
 		else
 		{	//query for all safe, unexplored rooms. pick the closest one and move to it.
 			int bestRoomX = -1, bestRoomY = -1, distance, bestDistance = Integer.MAX_VALUE;
-			ArrayList<int[]> safeUnexploredCoords = new ArrayList<>();
+			ArrayList<int[]> unexploredCoords = new ArrayList<>();
 			
 			//grab all the safe rooms
 			Query safe = new Query("safe(X,Y)");
 			while (safe.hasMoreSolutions())
 			{
 				Map<String,Term> safeRoom = safe.nextSolution();
-				safeUnexploredCoords.add(new int[] {safeRoom.get("X").intValue(), safeRoom.get("Y").intValue()});
+				unexploredCoords.add(new int[] {safeRoom.get("X").intValue(), safeRoom.get("Y").intValue()});
 			}
 			//filter out any that are explored or walls
 			Query explored = new Query("explored(X,Y)");
 			while (explored.hasMoreSolutions())
 			{
 				Map<String,Term> exploredRoom = explored.nextSolution();
-				safeUnexploredCoords.removeIf(coord -> coord[0] == exploredRoom.get("X").intValue() && exploredRoom.get("Y").intValue() == coord[1]);
+				unexploredCoords.removeIf(coord -> coord[0] == exploredRoom.get("X").intValue() && exploredRoom.get("Y").intValue() == coord[1]);
 			}
 			Query wall = new Query("wall(X,Y)");
 			while (wall.hasMoreSolutions())
 			{
 				Map<String,Term> wallRoom = wall.nextSolution();
-				safeUnexploredCoords.removeIf(coord -> coord[0] == wallRoom.get("X").intValue() && wallRoom.get("Y").intValue() == coord[1]);
+				unexploredCoords.removeIf(coord -> coord[0] == wallRoom.get("X").intValue() && wallRoom.get("Y").intValue() == coord[1]);
 			}
 			
-			if (safeUnexploredCoords.isEmpty())	//there's no safe place to go to!
+			if (unexploredCoords.isEmpty())	//there's no safe place to go to!
 			{
 				//TODO decide how to proceed when there are no space spaces.
 				System.out.println("There are no safe spaces left!!");
-				forward();
-			}
-			else	//there is at least one safe place to go!
-			{
-				//measure how far away each option we have is
-				for (int[] coord : safeUnexploredCoords)
+				
+				//we'll just grab every unexplored space if none of them are safe
+				Query unexplored = new Query("unexplored(X,Y)");
+				while (unexplored.hasMoreSolutions())
 				{
-					distance = Math.abs(coord[0] - agentX) + Math.abs(coord[1] - agentY);
-					if (distance < bestDistance)
-					{
-						bestDistance = distance;
-						bestRoomX = coord[0];
-						bestRoomY = coord[1];
-					}
+					Map<String,Term> unexploredRoom = unexplored.nextSolution();
+					unexploredCoords.add(new int[] {unexploredRoom.get("X").intValue(), unexploredRoom.get("Y").intValue()});
 				}
-				//then go to the closest one! We should be able to find a path, but this print statement is here for debugging just in case.
-				 if (!goTo(bestRoomX, bestRoomY))
-					 System.out.println("No safe path could be found: " + agentX + ", " + agentY + " -> " + bestRoomX + ", " + bestRoomY);
 			}
+			
+			//measure how far away each option we have is
+			for (int[] coord : unexploredCoords)
+			{
+				distance = Math.abs(coord[0] - agentX) + Math.abs(coord[1] - agentY);
+				if (distance < bestDistance)
+				{
+					bestDistance = distance;
+					bestRoomX = coord[0];
+					bestRoomY = coord[1];
+				}
+			}
+			//then go to the closest one! We should be able to find a path, but this print statement is here for debugging just in case.
+			 if (!goTo(bestRoomX, bestRoomY))
+				 System.out.println("No safe path could be found: " + agentX + ", " + agentY + " -> " + bestRoomX + ", " + bestRoomY);
 		}
 		if (agentHasWon())
 			points += 1000;
@@ -390,12 +415,24 @@ public class WumpusWorld
 	//returns true if the agent is standing on a pit or is in a room with the wumpus and has never heard a scream.
 	public boolean agentHasDied()
 	{
-		boolean wumpusIsDead = new Query("scream").hasSolution();
-		return (map[agentX][agentY].isPit() || (!wumpusIsDead && map[agentX][agentY].isWumpus()));
+		return (diedToPit() || diedToWumpus());
 	}
-	public int getMoves()
+	public boolean diedToPit()
 	{
-		return moves;
+		return map[agentX][agentY].isPit();
+	}
+	public boolean diedToWumpus()
+	{
+		if (map[agentX][agentY].isWumpus())
+		{	//if the wumpus is still alive, the agent just died to it.
+			boolean wumpusIsDead = new Query("scream").hasSolution();
+			return !wumpusIsDead;
+		}
+		else return false;
+	}
+	public int getActions ()
+	{
+		return actions;
 	}
 	public int getPoints()
 	{
