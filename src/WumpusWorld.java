@@ -352,7 +352,7 @@ public class WumpusWorld
 		else
 		{
 			//finds and moves us to the closest safe room
-			findClosestRoom(safeShootingRooms);
+			goToClosestRoom(safeShootingRooms);
 			if (y > agentY)	//need to face north
 				turnToFace(0);
 			else if (x > agentX)		//east
@@ -465,20 +465,21 @@ public class WumpusWorld
 						//if we ever end up here, we can't win...
 						//and seeing as we can't leave without our gold, we commit suicide as quickly as possible so as to minimize point loss
 						else
-							findClosestRoom(dangerousRooms);
-					} else    //we have some risky, but unknown places to try
-						findClosestRoom(unexploredCoords);
+							goToClosestRoom(dangerousRooms);
+					}
+					else    //otherwise we have some risky, but unknown places to try
+						goToClosestRoom(unexploredCoords);
 				}
 			}
 			else	//there are some safe places to explore!
-				findClosestRoom(unexploredCoords);
+				goToClosestRoom(unexploredCoords);
 		}
 		if (agentHasWon())
 			points += 1000;
 	}
 	
 	//locates the closest room to the agent and goes to it
-	private void findClosestRoom (ArrayList<int[]> possibleRooms)
+	private void goToClosestRoom (ArrayList<int[]> possibleRooms)
 	{
 		while (true)
 		{
