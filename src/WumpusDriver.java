@@ -17,5 +17,4 @@ public class WumpusDriver
 		System.out.println("\nFINAL SCORE: " + world.getPoints());
 	}
 	//TODO main menu with level size chooser
-	//TODO write prolog rules
 }
