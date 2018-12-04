@@ -113,6 +113,9 @@ public class WumpusWorld
 		new Query("assert(wall(" + (size+1) + "," + 0 + "))").hasSolution();
 		new Query("assert(wall(" + (size+1) + "," + (size+1) + "))").hasSolution();
 		
+		new Query("assert(pit(" + startingX + "," + startingY + "):- false)");
+		new Query("assert(wumpus(" + startingX + "," + startingY + "):- false)");
+		
 		return map;
 	}
 	
@@ -216,8 +219,7 @@ public class WumpusWorld
 		if (agentDirection < 0)
 			agentDirection = 3;
 	}
-	//uses turning and forward moves to go directly to an adjacent square. does NOT check for safety!
-	public void moveAjd (int direction)
+	public void turnToFace (int direction)
 	{
 		//this variable is a little confusing, but it saves some space compared to previous copy/paste spaghetticode
 		//think of it as how many times we have to turn left to end up facing the way we want to go!
@@ -240,6 +242,11 @@ public class WumpusWorld
 				turnRight();
 				break;
 		}
+	}
+	//uses turning and forward moves to go directly to an adjacent square. does NOT check for safety!
+	public void moveAjd (int direction)
+	{
+		turnToFace(direction);
 		forward();
 	}
 	public void moveAjd (int x, int y)
@@ -282,12 +289,14 @@ public class WumpusWorld
 		}
 		else System.out.println("You search the room for treasure, but find nothing.");
 	}
+	//fires an arrow straight forward
 	public void shoot()
 	{
 		actions++;
 		points -= 10;
 		if (arrows > 0)
 		{
+			System.out.println("You draw back your bow and fire off an arrow into the darkness.");
 			arrows--;
 			switch (agentDirection)
 			{
@@ -321,6 +330,42 @@ public class WumpusWorld
 			}
 		}
 	}
+	//moves the agent to a safe place and turns them to face the room they want to shoot at, then fires!
+	public boolean shoot (int x, int y)
+	{
+		ArrayList<int[]> safeShootingRooms = new ArrayList<>();
+		Query roomQuery = new Query("safe(" + x + ",Y)");
+		while (roomQuery.hasMoreSolutions())
+		{
+			Map<String,Term> safeRoom = roomQuery.nextSolution();
+			safeShootingRooms.add(new int[] {x, safeRoom.get("Y").intValue()});
+		}
+		roomQuery = new Query("safe(X," + y + ")");
+		while (roomQuery.hasMoreSolutions())
+		{
+			Map<String,Term> safeRoom = roomQuery.nextSolution();
+			safeShootingRooms.add(new int[] {safeRoom.get("X").intValue(), y});
+		}
+		//we couldn't find any rooms to move to and shoot from
+		if (safeShootingRooms.isEmpty())
+			return false;
+		else
+		{
+			//finds and moves us to the closest safe room
+			findClosestRoom(safeShootingRooms);
+			if (y > agentY)	//need to face north
+				turnToFace(0);
+			else if (x > agentX)		//east
+				turnToFace(1);
+			else if (y < agentY)		//south
+				turnToFace(2);
+			else if (x < agentX)		//west
+				turnToFace(3);
+			
+			shoot();
+			return true;
+		}
+	}
 	//helper function for shoot().
 	//Returns true if the wumpus has been hit. We stop the arrow if we hit the wumpus.
 	private boolean sendArrowThrough (int x, int y)
@@ -329,6 +374,7 @@ public class WumpusWorld
 		{
 			//tell the agent there is no more risk from the wumpus
 			new Query("assert(scream)").hasSolution();
+			System.out.println("You hear a terrible scream. Your arrow must have hit its mark!");
 			return true;
 		}
 		else
@@ -348,9 +394,8 @@ public class WumpusWorld
 			grabGold();
 			goTo(startingX, startingY);
 		}
-		else
-		{	//query for all safe, unexplored rooms. pick the closest one and move to it.
-			int bestRoomX = -1, bestRoomY = -1, distance, bestDistance = Integer.MAX_VALUE;
+		else	//query for all safe, unexplored rooms. pick the closest one and move to it.
+		{
 			ArrayList<int[]> unexploredCoords = new ArrayList<>();
 			
 			//grab all the safe rooms
@@ -376,20 +421,70 @@ public class WumpusWorld
 			
 			if (unexploredCoords.isEmpty())	//there's no safe place to go to!
 			{
-				//TODO decide how to proceed when there are no space spaces.
 				System.out.println("There are no safe spaces left!!");
 				
-				//we'll just grab every unexplored space if none of them are safe
-				Query unexplored = new Query("unexplored(X,Y)");
-				while (unexplored.hasMoreSolutions())
+				//if we have an arrow, we don't know where the wumpus is, and there's a stinky space somewhere, shoot at the stink
+				Query stinky = new Query("stinky(X,Y)");
+				if (arrows > 0 && !new Query("wumpus(X,Y)").hasSolution() && stinky.hasMoreSolutions())
 				{
-					Map<String,Term> unexploredRoom = unexplored.nextSolution();
-					unexploredCoords.add(new int[] {unexploredRoom.get("X").intValue(), unexploredRoom.get("Y").intValue()});
+					int x, y;
+					Map<String,Term> stinkyRoom = stinky.nextSolution();
+					x = stinkyRoom.get("X").intValue();
+					y = stinkyRoom.get("Y").intValue();
+					shoot(x, y);
+				}
+				else	//we aren't shooting
+				{
+					//we'll just grab every unexplored space since none of them are safe
+					Query unexplored = new Query("unexplored(X,Y)");
+					while (unexplored.hasMoreSolutions())
+					{
+						Map<String, Term> unexploredRoom = unexplored.nextSolution();
+						unexploredCoords.add(new int[]{unexploredRoom.get("X").intValue(), unexploredRoom.get("Y").intValue()});
+					}
+					//we don't want to visit one with a confirmed wumpus or pit!
+					Query dangerous = new Query("dangerous(X,Y)");
+					ArrayList<int[]> dangerousRooms = new ArrayList<>();
+					while (dangerous.hasMoreSolutions())
+					{
+						Map<String, Term> dangerousRoom = dangerous.nextSolution();
+						dangerousRooms.add(new int[] {dangerousRoom.get("X").intValue(), dangerousRoom.get("Y").intValue()});
+						unexploredCoords.removeIf(coord -> coord[0] == dangerousRoom.get("X").intValue() && dangerousRoom.get("Y").intValue() == coord[1]);
+					}
+					if (unexploredCoords.isEmpty())    //every unexplored space is dangerous
+					{
+						//if we know where the wumpus is, we can shoot it. Maybe it's blocking the path or on the gold?
+						Query wumpusQuery = new Query("wumpus(X,Y)");
+						Map<String,Term> wumpusLoc;
+						if (arrows > 0 && wumpusQuery.hasMoreSolutions())
+						{
+							wumpusLoc = wumpusQuery.nextSolution();
+							shoot(wumpusLoc.get("X").intValue(), wumpusLoc.get("Y").intValue());
+						}
+						
+						//if we ever end up here, we can't win...
+						//and seeing as we can't leave without our gold, we commit suicide as quickly as possible so as to minimize point loss
+						else
+							findClosestRoom(dangerousRooms);
+					} else    //we have some risky, but unknown places to try
+						findClosestRoom(unexploredCoords);
 				}
 			}
-			
+			else	//there are some safe places to explore!
+				findClosestRoom(unexploredCoords);
+		}
+		if (agentHasWon())
+			points += 1000;
+	}
+	
+	//locates the closest room to the agent and goes to it
+	private void findClosestRoom (ArrayList<int[]> possibleRooms)
+	{
+		while (true)
+		{
+			int bestRoomX = -1, bestRoomY = -1, distance, bestDistance = Integer.MAX_VALUE, index = -1;
 			//measure how far away each option we have is
-			for (int[] coord : unexploredCoords)
+			for (int[] coord : possibleRooms)
 			{
 				distance = Math.abs(coord[0] - agentX) + Math.abs(coord[1] - agentY);
 				if (distance < bestDistance)
@@ -397,14 +492,18 @@ public class WumpusWorld
 					bestDistance = distance;
 					bestRoomX = coord[0];
 					bestRoomY = coord[1];
+					index = possibleRooms.indexOf(coord);
 				}
 			}
-			//then go to the closest one! We should be able to find a path, but this print statement is here for debugging just in case.
-			 if (!goTo(bestRoomX, bestRoomY))
-				 System.out.println("No safe path could be found: " + agentX + ", " + agentY + " -> " + bestRoomX + ", " + bestRoomY);
+			//then go to the closest one!
+			if (goTo(bestRoomX, bestRoomY))
+				break;
+			else
+			{	//if we couldn't find a path there, remove it from the list and find the next closest one, then go there.
+				System.out.println("No safe path could be found: " + agentX + ", " + agentY + " -> " + bestRoomX + ", " + bestRoomY);
+				possibleRooms.remove(index);
+			}
 		}
-		if (agentHasWon())
-			points += 1000;
 	}
 	
 	//returns true if the agent has gold and is in the starting room
